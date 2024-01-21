@@ -10,8 +10,6 @@ modem = peripheral.find("modem")
 port = 6543
 modem.open(port)
 
-local rendered_already = {}
-
 coroutines = {}
 filters = {}
 local function coroutine_add(f)
@@ -20,6 +18,7 @@ local function coroutine_add(f)
     coroutines[i] = co
     local _,filter = coroutine.resume(co)
     filters[i] = filter
+    return i
 end
 local function coroutine_manager()
     while true do
@@ -27,12 +26,17 @@ local function coroutine_manager()
         if e[1] == "terminate" then
             break
         end
-        for i,co in ipairs(coroutines) do
+        for i,co in pairs(coroutines) do
             if coroutine.status(co) ~= "dead" then
                 if filters[i] == nil or e[1] == filters[i] then
                     local _,filter = coroutine.resume(co, table.unpack(e))
                     filters[i] = filter
                 end
+            else
+                print("yeeting coroutine")
+                -- remove dead coroutine
+                coroutines[i] = nil
+                filters[i] = nil
             end
         end
     end
@@ -74,7 +78,8 @@ function render(message)
             end
         end
     end
-    table.insert(objects,o)
+    local oindex = #objects + 1
+    objects[oindex] = o
     ff = function()
         --success = pcall(f,o)
         f(o)
@@ -83,22 +88,81 @@ function render(message)
         else
             print("fail")
             o.remove()
+            objects[oindex] = nil
         end
     end
-    coroutine_add(ff)
+    local findex = coroutine_add(ff)
+    return oindex, findex
+end
+
+local rendered_versions = {}
+local function renderedVersion(message)
+    local pc = rendered_versions[message.pcid]
+    if not pc then
+        return nil
+    end
+    local o = pc[message.oid]
+    return o
+end
+local function setRenderedVersion(message,oindex,findex)
+    local pc = rendered_versions[message.pcid]
+    if not pc then
+        pc = {}
+        rendered_versions[message.pcid] = pc
+    end
+    pc[message.oid] = {
+        code=message.code,
+        x=message.x,
+        y=message.y,
+        z=message.z,
+        oindex=oindex,
+        findex=findex
+    }
+end
+
+local function sameVersion(message,rendered)
+    if message.x ~= rendered.x or message.y ~= rendered.y or message.z ~= rendered.z then
+        return false
+    end
+    return message.code == rendered.code
 end
 
 local function main()
     while true do
+        print("looping")
         repeat 
             event, side, channel, replyChannel, message, distance = os.pullEvent("modem_message")
         until channel == port
-        if type(message) == "table" and type(message.code) == "string" and not rendered_already[message.code] then
-            print("rendering")
-            render(message)
-            print("end")
-            
-            rendered_already[message.code] = true
+        if type(message) == "table" and type(message.code) == "string" then
+            local rendered_version = renderedVersion(message)
+            if rendered_version == nil then
+                print("rendering")
+                local oindex,findex = render(message)
+                print(oindex)
+                print(findex)
+                print("end")
+                setRenderedVersion(message,oindex,findex)
+            else
+                if not sameVersion(message,rendered_version) then
+                    -- must destroy old object first
+                    coroutines[rendered_version.findex] = nil
+                    filters[rendered_version.findex] = nil
+                    print(rendered_version.oindex)
+                    print(rendered_version.findex)
+                    objects[rendered_version.oindex].remove()
+                    objects[rendered_version.oindex] = nil
+                    -- before rendering again
+                    print("re-rendering")
+                    local oindex,findex = render(message)
+                    print(oindex)
+                    print(findex)
+                    print("end")
+                    setRenderedVersion(message,oindex,findex)
+                else
+                    print("already rendered")
+                    -- already rendered, nothing to do
+                end
+            end
         end
     end
 end
@@ -107,6 +171,6 @@ coroutine_add(main)
 coroutine_manager()
 
 print("cleaning up")
-for _,o in ipairs(objects) do
+for i,o in pairs(objects) do
     o.remove()
 end
