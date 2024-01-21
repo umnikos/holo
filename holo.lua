@@ -1,11 +1,7 @@
 -- Copyright Alex Stefanov (umnikos) 2024 
 -- Licensed under GPLv3
 
-local x,y,z
-while not x do
-    sleep(1)
-    x,y,z = gps.locate()
-end
+
 --print(x,y,z)
 m = peripheral.wrap("back")
 c = m.canvas3d()
@@ -42,6 +38,12 @@ local function coroutine_manager()
     end
 end
 
+function ownerIsMoving()
+    o = m.getMetaOwner()
+    return 0 ~= o.deltaPosX or 0 ~= o.deltaPosY or 0 ~= o.deltaPosZ
+end
+
+objects = {}
 function render(message)
     f = load(message.code)
     if not f then 
@@ -49,7 +51,30 @@ function render(message)
         return
     end
     f = setfenv(f,{sleep=sleep})
-    o = c.create({message.x-x,message.y-y,message.z-z})
+    local x,y,z
+    local o
+    while true do
+        if ownerIsMoving() then
+            sleep(1)
+        else
+            x,y,z = gps.locate()
+            if not x then
+                sleep(0.1)
+            else
+                -- time to act!
+                o = c.create({message.x-x,message.y-y,message.z-z})
+                sleep(0.1)
+                if ownerIsMoving() then
+                    -- may be invalid, must retry
+                    o.remove()
+                else    
+                    -- valid! (most likely)
+                    break
+                end
+            end
+        end
+    end
+    table.insert(objects,o)
     ff = function()
         --success = pcall(f,o)
         f(o)
@@ -80,3 +105,8 @@ end
 
 coroutine_add(main)
 coroutine_manager()
+
+print("cleaning up")
+for _,o in ipairs(objects) do
+    o.remove()
+end
