@@ -34,6 +34,7 @@ local function coroutine_manager()
                 end
             else
                 print("yeeting coroutine")
+                print(filters[i]) -- that's the error message now
                 -- remove dead coroutine
                 coroutines[i] = nil
                 filters[i] = nil
@@ -127,13 +128,22 @@ local function sameVersion(message,rendered)
     return message.code == rendered.code
 end
 
+local function validMessage(message)
+    return type(message.code) == "string" 
+       and type(message.x) == "number" 
+       and type(message.y) == "number" 
+       and type(message.z) == "number" 
+       and type(message.pcid) == "number" 
+       and type(message.oid) == "number"
+end
+
 local function main()
     while true do
         print("looping")
         repeat 
             event, side, channel, replyChannel, message, distance = os.pullEvent("modem_message")
         until channel == port
-        if type(message) == "table" and type(message.code) == "string" then
+        if type(message) == "table" and validMessage(message) then
             local rendered_version = renderedVersion(message)
             if rendered_version == nil then
                 print("rendering")
